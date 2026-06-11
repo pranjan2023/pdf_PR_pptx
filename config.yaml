@@ -1,0 +1,36 @@
+llm:
+  model: qwen2.5:14b
+  base_url: http://localhost:11434/api/chat
+  timeout: 120
+  stream: false
+
+embedding:
+  model: all-MiniLM-L6-v2
+  dim: 384
+  device: mps
+  batch_size: 32
+
+milvus:
+  db_path: ./data/milvus.db
+  collection: pdf_chunks
+  index_type: FLAT
+  metric_type: COSINE
+
+retrieval:
+  top_k: 15
+  min_evidence: 3
+
+chunking:
+  chunk_size: 512
+  overlap: 64
+
+agent:
+  max_plan_retries: 3
+  max_content_retries: 2
+  max_strategies_retries: 2
+
+output:
+  path: ./outputs/presentation.pptx
+
+style:
+  default: clean minimal

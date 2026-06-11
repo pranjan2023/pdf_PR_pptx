@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.Python
+*.egg-info/
+
+# Conda/venv
+env/
+venv/
+.env
+
+# Milvus DB — don't commit vector data
+data/milvus.db/
+
+# Outputs — generated files
+outputs/
+
+# OS
+.DS_Store
+
+# Secrets / config with keys
+# (config.yaml is fine since no API keys — keep it)
+
+# Jupyter
+.ipynb_checkpoints/
