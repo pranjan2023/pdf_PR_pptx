@@ -45,7 +45,7 @@ def _add_slide(prs: Presentation, content: SlideContent, style: StyleConfig) -> 
     p = tf.paragraphs[0]
     p.text = content.title
     p.font.name = style.title_font
-    p.font.size = Pt(36)
+    p.font.size = Pt(28)
     p.font.bold = True
     p.font.color.rgb = hex_to_rgb(style.accent_color)
 
@@ -83,7 +83,7 @@ def _add_slide(prs: Presentation, content: SlideContent, style: StyleConfig) -> 
         p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
         p.text = f"  {bullet}"
         p.font.name = style.body_font
-        p.font.size = Pt(22)
+        p.font.size = Pt(18)
         p.font.color.rgb = text_color
         p.space_before = Pt(14)
 

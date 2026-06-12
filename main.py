@@ -1,6 +1,5 @@
 import sys
 from pathlib import Path
-sys.path.insert(0, "src")
 
 from src.ingest import ingest_pdf
 from src.chunker import chunk_doctree
