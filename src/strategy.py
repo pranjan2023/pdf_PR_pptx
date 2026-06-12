@@ -1,53 +1,146 @@
 from src.models import PresentationRequest, EvidencePack, PresentationStrategy
 from src.utils import call_llm, parse_json, log
 
-def generate_strategy(request: PresentationRequest, evidence: EvidencePack) -> PresentationStrategy:
+
+_SYSTEM = """You are an expert presentation strategist.
+Given a topic, audience, objective, and available evidence, define:
+1. The single core message the audience should leave with
+2. How to adapt tone and depth for this specific audience
+3. An ordered list of recommended sections that can be supported by the evidence
+
+Return ONLY valid JSON. No markdown fences, no explanation."""
+
+_PROMPT = """Request:
+  Topic    : {topic}
+  Audience : {audience}
+  Objective: {objective}
+  Slides   : {slide_count}
+
+Available evidence ({n_chunks} chunks):
+{evidence_summary}
+
+Return JSON in exactly this format:
+{{
+  "core_message": "one sentence — what should the audience remember after this presentation",
+  "audience_adaptation": "one sentence — how tone/depth/vocabulary should be adjusted",
+  "recommended_sections": ["Section 1 title", "Section 2 title", ...]
+}}
+
+Rules:
+- recommended_sections must have between {min_sections} and {max_sections} items
+- Each section title should map to actual content in the evidence above
+- Do not invent sections that have no evidence support
+- Order sections as they would appear in the presentation"""
+
+
+def _build_evidence_summary(evidence: EvidencePack, max_chunks: int = 15) -> str:
     """
-    S4: Analyzes the request and evidence to formulate a narrative strategy.
+    Build a structured evidence summary for the strategy prompt.
+    Groups by type so the LLM understands what's available.
     """
-    
-    # Flatten evidence into a quick summary preview to save tokens
+    lines = []
+
+    if evidence.sections:
+        lines.append("SECTIONS:")
+        for c in evidence.sections[:max_chunks]:
+            preview = c.text[:200].replace("\n", " ").strip()
+            lines.append(f"  [{c.section}] {preview}")
+
+    if evidence.tables:
+        lines.append("TABLES:")
+        for c in evidence.tables[:3]:
+            preview = c.text[:150].replace("\n", " ").strip()
+            lines.append(f"  [{c.section}] {preview}")
+
+    if evidence.figures:
+        lines.append("FIGURES:")
+        for c in evidence.figures[:3]:
+            lines.append(f"  [{c.section}] {c.text[:100].strip()}")
+
+    return "\n".join(lines) if lines else "No evidence available."
+
+
+def generate_strategy(
+    request: PresentationRequest,
+    evidence: EvidencePack,
+    max_retries: int = 2,
+) -> PresentationStrategy:
+    """S4 — Generate narrative presentation strategy from request + evidence."""
+
     all_chunks = evidence.sections + evidence.concepts + evidence.tables + evidence.figures
-    evidence_preview = "\n".join([f"- {c.text[:150]}..." for c in all_chunks[:10]]) # Preview top 10 chunks
-    
-    system_prompt = (
-        "You are an expert presentation strategist. "
-        "Analyze the user's request and the available evidence. "
-        "Define the core message, how to adapt the tone for the audience, and an outline of recommended sections. "
-        "Return ONLY valid JSON matching this schema: "
-        "{'core_message': 'str', 'audience_adaptation': 'str', 'recommended_sections': ['str']}"
+    evidence_summary = _build_evidence_summary(evidence)
+
+    # slide_count drives how many sections to recommend
+    min_sections = max(3, request.slide_count // 3)
+    max_sections = request.slide_count - 1   # leave room for title + conclusion
+
+    prompt = _PROMPT.format(
+        topic=request.topic,
+        audience=request.audience,
+        objective=request.objective,
+        slide_count=request.slide_count,
+        n_chunks=len(all_chunks),
+        evidence_summary=evidence_summary,
+        min_sections=min_sections,
+        max_sections=max_sections,
     )
-    
-    user_prompt = (
-        f"Topic: {request.topic}\n"
-        f"Audience: {request.audience}\n"
-        f"Objective: {request.objective}\n\n"
-        f"Available Evidence Preview:\n{evidence_preview}"
+
+    for attempt in range(1, max_retries + 1):
+        log("strategy", f"Generating strategy (attempt {attempt}/{max_retries})")
+        raw = call_llm(_SYSTEM, prompt)
+        parsed = parse_json(raw)
+
+        if parsed and "core_message" in parsed and "recommended_sections" in parsed:
+            try:
+                strategy = PresentationStrategy(**parsed)
+                log("strategy", f"Core message: {strategy.core_message}")
+                log("strategy", f"Sections: {strategy.recommended_sections}")
+                return strategy
+            except Exception as e:
+                log("strategy", f"Pydantic validation failed: {e}")
+
+        log("strategy", f"Attempt {attempt}: invalid response, retrying...")
+
+    # Fallback
+    log("strategy", "WARNING: using fallback strategy")
+    return PresentationStrategy(
+        core_message=f"Understanding {request.topic}",
+        audience_adaptation=f"Content tailored for {request.audience} audience",
+        recommended_sections=[
+            "Introduction",
+            "Core Concepts",
+            "Key Findings",
+            "Applications",
+            "Conclusion",
+        ],
     )
-    
-    response_text = call_llm(system_prompt, user_prompt)
-    strategy_dict = parse_json(response_text)
-    
-    # Fallback if parsing fails
-    if not strategy_dict:
-        return PresentationStrategy(
-            core_message=f"A presentation about {request.topic}",
-            audience_adaptation=f"Tailored for {request.audience}",
-            recommended_sections=["Introduction", "Key Findings", "Conclusion"]
-        )
-        
-    return PresentationStrategy(**strategy_dict)
 
 
 def grade_strategy(strategy: PresentationStrategy) -> tuple[str, str]:
     """
-    S4c: Deterministic Strategy Critic.
-    Returns (grade, reason).
+    S4c — Deterministic strategy critic.
+    Checks structural validity without an LLM call.
     """
     if not strategy.core_message.strip():
-        return "retry", "Core message is empty."
-        
+        return "retry", "core_message is empty"
+
+    if len(strategy.core_message.split()) < 5:
+        return "retry", "core_message is too short — less than 5 words"
+
     if len(strategy.recommended_sections) < 3:
-        return "retry", "Too few sections recommended (need at least 3 for a standard narrative flow)."
-        
+        return "retry", (
+            f"only {len(strategy.recommended_sections)} sections recommended "
+            f"— need at least 3"
+        )
+
+    # Check for duplicate section titles
+    titles = [s.strip().lower() for s in strategy.recommended_sections]
+    if len(titles) != len(set(titles)):
+        return "retry", "duplicate section titles in recommended_sections"
+
+    # Check for empty section titles
+    empty = [s for s in strategy.recommended_sections if not s.strip()]
+    if empty:
+        return "retry", f"{len(empty)} empty section titles"
+
     return "good", ""
