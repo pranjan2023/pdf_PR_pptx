@@ -3,11 +3,16 @@ from pathlib import Path
 from pymilvus import MilvusClient, DataType
 from sentence_transformers import SentenceTransformer
 from src.models import Chunk
+from src.utils import CONFIG, log
 
-COLLECTION = "pdf_chunks"
-DB_PATH    = "./data/milvus.db"
-MODEL_NAME = "all-MiniLM-L6-v2"   # 90MB — fast on MPS, upgrade to BGE-M3 later
-DIM        = 384                   # all-MiniLM output dim
+
+# Read from config — single source of truth
+DB_PATH    = CONFIG["milvus"]["db_path"]
+COLLECTION = CONFIG["milvus"]["collection"]
+MODEL_NAME = CONFIG["embedding"]["model"]
+DIM        = CONFIG["embedding"]["dim"]
+DEVICE     = CONFIG["embedding"]["device"]
+BATCH_SIZE = CONFIG["embedding"]["batch_size"]
 
 
 def get_client() -> MilvusClient:
@@ -20,19 +25,19 @@ def ensure_collection(client: MilvusClient) -> None:
         return
 
     schema = client.create_schema(auto_id=False, enable_dynamic_field=False)
-    schema.add_field("chunk_id",  DataType.VARCHAR, max_length=64, is_primary=True)
-    schema.add_field("text",      DataType.VARCHAR, max_length=8192)
+    schema.add_field("chunk_id",  DataType.VARCHAR, max_length=64,    is_primary=True)
+    schema.add_field("text",      DataType.VARCHAR, max_length=32768)  # matches chunker limit
     schema.add_field("section",   DataType.VARCHAR, max_length=256)
     schema.add_field("page",      DataType.INT64)
     schema.add_field("type",      DataType.VARCHAR, max_length=64)
     schema.add_field("doc_id",    DataType.VARCHAR, max_length=256)
-    schema.add_field("embedding", DataType.FLOAT_VECTOR, dim=DIM)
+    schema.add_field("embedding", DataType.FLOAT_VECTOR, dim=DIM)     # from config
 
     index_params = client.prepare_index_params()
     index_params.add_index(
         field_name="embedding",
         index_type="FLAT",        # exact search — fine for <10k chunks
-        metric_type="COSINE",
+        metric_type=CONFIG["milvus"]["metric_type"],
     )
 
     client.create_collection(
@@ -40,30 +45,61 @@ def ensure_collection(client: MilvusClient) -> None:
         schema=schema,
         index_params=index_params,
     )
-    print(f"[embedder] Created collection '{COLLECTION}'")
+    log("embedder", f"Created collection '{COLLECTION}' (dim={DIM})")
+
+
+def delete_doc(client: MilvusClient, doc_id: str) -> None:
+    """
+    Remove all existing chunks for a doc_id before re-ingesting.
+    Prevents duplicates when running offline pipeline twice.
+    """
+    try:
+        client.load_collection(COLLECTION)
+        existing = client.query(
+            collection_name=COLLECTION,
+            filter=f'doc_id == "{doc_id}"',
+            output_fields=["chunk_id"],
+        )
+        if existing:
+            ids = [r["chunk_id"] for r in existing]
+            client.delete(
+                collection_name=COLLECTION,
+                filter=f'doc_id == "{doc_id}"',
+            )
+            log("embedder", f"Deleted {len(ids)} existing chunks for '{doc_id}'")
+    except Exception as e:
+        log("embedder", f"No existing chunks to delete ({e})")
 
 
 def embed_and_upsert(chunks: list[Chunk], doc_id: str) -> None:
-    """Embed chunks and upsert into Milvus."""
+    """
+    Embed chunks with sentence-transformers and upsert into Milvus.
+    Deletes existing chunks for doc_id first to prevent duplicates.
+    """
+    if not chunks:
+        log("embedder", "No chunks to embed — skipping")
+        return
+
     client = get_client()
     ensure_collection(client)
+    delete_doc(client, doc_id)
 
+    log("embedder", f"Embedding {len(chunks)} chunks with {MODEL_NAME}...")
     model = SentenceTransformer(MODEL_NAME)
-
     texts = [c.text for c in chunks]
-    print(f"[embedder] Embedding {len(texts)} chunks with {MODEL_NAME}...")
+
     embeddings = model.encode(
         texts,
-        batch_size=32,
+        batch_size=BATCH_SIZE,
         show_progress_bar=True,
-        device="mps",             # Apple Silicon — change to "cpu" if issues
+        device=DEVICE,
     )
 
     rows = []
     for chunk, emb in zip(chunks, embeddings):
         rows.append({
             "chunk_id":  chunk.chunk_id,
-            "text":      chunk.text[:8192],
+            "text":      chunk.text[:32768],
             "section":   chunk.section,
             "page":      chunk.page,
             "type":      chunk.type,
@@ -72,36 +108,33 @@ def embed_and_upsert(chunks: list[Chunk], doc_id: str) -> None:
         })
 
     client.upsert(collection_name=COLLECTION, data=rows)
-    print(f"[embedder] Upserted {len(rows)} chunks for doc_id='{doc_id}'")
+    log("embedder", f"Upserted {len(rows)} chunks for doc_id='{doc_id}'")
+
+    # Verify
+    client.load_collection(COLLECTION)
+    count = client.query(
+        collection_name=COLLECTION,
+        filter=f'doc_id == "{doc_id}"',
+        output_fields=["chunk_id"],
+    )
+    log("embedder", f"Verified: {len(count)} chunks in Milvus for '{doc_id}'")
     client.close()
 
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python embedder.py <path_to_pdf>")
+        print("Usage: python -m src.embedder <path_to_pdf>")
         sys.exit(1)
 
+    from src.ingest import ingest_pdf
+    from src.chunker import chunk_doctree
+
     pdf_path = sys.argv[1]
-    doc_id   = Path(pdf_path).stem   # "Attention_is_all_you_Need"
+    doc_id   = Path(pdf_path).stem
 
-    # Import here to avoid circular deps at module level
-    sys.path.insert(0, str(Path(__file__).parent))
-    from ingest import ingest_pdf
-    from chunker import chunk_doctree
-
-    print(f"[embedder] Ingesting {pdf_path}...")
+    log("embedder", f"Starting offline pipeline for '{doc_id}'")
     doctree = ingest_pdf(pdf_path)
     chunks  = chunk_doctree(doctree)
-    print(f"[embedder] Got {len(chunks)} chunks")
+    log("embedder", f"Got {len(chunks)} chunks")
 
     embed_and_upsert(chunks, doc_id)
-
-    # Verify
-    client = get_client()
-    count  = client.query(
-        collection_name=COLLECTION,
-        filter=f'doc_id == "{doc_id}"',
-        output_fields=["chunk_id"],
-    )
-    print(f"[embedder] Verified: {len(count)} chunks in Milvus for '{doc_id}'")
-    client.close()
