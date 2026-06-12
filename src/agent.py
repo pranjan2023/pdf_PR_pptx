@@ -59,15 +59,15 @@ def node_grade_strategy(state: AgentState) -> AgentState:
 def node_plan(state: AgentState) -> AgentState:
     attempts = state.get("plan_attempts", 0) + 1
     log("agent", f"S5 — generating slide plan (attempt {attempts})")
-    plan = generate_slide_plan(state["request"], state["evidence"])
+    plan = generate_slide_plan(
+        state["request"],
+        state["evidence"],
+        strategy=state.get("strategy"),   # ← pass strategy
+    )
     return {**state, "plan": plan, "plan_attempts": attempts}
 
 
 def node_grade_plan(state: AgentState) -> AgentState:
-    """
-    S5c — deterministic plan critic.
-    Checks: slide count, non-empty purposes, attempts cap.
-    """
     log("agent", "S5c — grading plan")
     plan    = state["plan"]
     request = state["request"]
@@ -92,8 +92,21 @@ def node_grade_plan(state: AgentState) -> AgentState:
         log("agent", "Grade: retry — duplicate slide purposes")
         return {**state, "plan_grade": "retry", "plan_reason": "duplicate purposes"}
 
+    # ← ADD THIS BLOCK HERE
+    evidence_sets = []
+    for s in plan.slides[1:-1]:   # skip title and conclusion
+        if s.evidence_ids:
+            frozen = frozenset(s.evidence_ids)
+            if frozen in evidence_sets:
+                log("agent", "Grade: retry — duplicate evidence sets across slides")
+                return {**state, "plan_grade": "retry",
+                        "plan_reason": "duplicate evidence sets"}
+            evidence_sets.append(frozen)
+
     log("agent", f"Grade: good — {plan.total} slides, all valid")
     return {**state, "plan_grade": "good", "plan_reason": ""}
+
+
 
 def node_generate_content(state: AgentState) -> AgentState:
     log("agent", "S6 — generating slide content")

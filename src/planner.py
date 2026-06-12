@@ -1,33 +1,26 @@
-from src.models import PresentationRequest, EvidencePack, SlideIntent, SlidePlan
+import sys
+from src.models import (
+    PresentationRequest, EvidencePack,
+    PresentationStrategy, SlideIntent, SlidePlan
+)
 from src.utils import call_llm, parse_json, log, CONFIG
-import sys 
 
 
-
-def generate_slide_plan(request: PresentationRequest,evidence: EvidencePack) -> SlidePlan:
-    max_retries = CONFIG["agent"]["max_plan_retries"]
-    """
-    S5 — LLM generates a SlidePlan from request + evidence.
-    No content yet — only slide purpose and evidence mapping.
-    """
-    all_chunks = evidence.concepts + evidence.tables + evidence.figures + evidence.sections
-
-    # Build evidence summary for the prompt
-    evidence_text = "\n".join(
-        f"[{c.chunk_id[:8]}] (page {c.page}) {c.text[:200]}"
-        for c in all_chunks
-    )
-
-    system_prompt = """You are a presentation architect.
+_SYSTEM = """You are a presentation architect.
 Your job is to create a slide plan — NOT slide content.
-Each slide should have a clear purpose and reference which evidence chunks it will use.
+Each slide has a clear purpose and references which evidence chunks support it.
 Respond ONLY in valid JSON. No markdown fences, no preamble, no explanation."""
 
-    user_prompt = f"""Create a {request.slide_count}-slide presentation plan.
+_PROMPT = """Create a {slide_count}-slide presentation plan.
 
-Topic    : {request.topic}
-Audience : {request.audience}
-Objective: {request.objective}
+Topic     : {topic}
+Audience  : {audience}
+Objective : {objective}
+
+Narrative strategy:
+  Core message : {core_message}
+  Adaptation   : {audience_adaptation}
+  Recommended sections: {recommended_sections}
 
 Available evidence chunks:
 {evidence_text}
@@ -44,44 +37,80 @@ Return a JSON object in exactly this format:
 }}
 
 Rules:
-- Exactly {request.slide_count} slides
-- First slide is always the title/overview slide (evidence_ids can be empty)
-- Last slide is always a conclusion/summary slide
-- Each evidence_id must be one of the 8-character chunk IDs from the list above
-- Do not generate any slide content — only purpose and evidence mapping"""
+- Exactly {slide_count} slides
+- Follow the recommended sections from the strategy above
+- Slide 1 is always the title/overview (evidence_ids can be empty)
+- Last slide is always conclusion/summary
+- Each evidence_id must be one of the 8-character chunk IDs listed above
+- Do not generate slide content — only purpose and evidence mapping
+- Every non-title slide should have at least one evidence_id"""
+
+
+def _build_evidence_text(evidence: EvidencePack) -> str:
+    all_chunks = evidence.sections + evidence.concepts + evidence.tables + evidence.figures
+    lines = []
+    for c in all_chunks:
+        preview = c.text[:200].replace("\n", " ").strip()
+        lines.append(f"[{c.chunk_id[:8]}] ({c.type}, page {c.page}, {c.section[:40]}) {preview}")
+    return "\n".join(lines)
+
+
+def generate_slide_plan(
+    request: PresentationRequest,
+    evidence: EvidencePack,
+    strategy: PresentationStrategy | None = None,
+) -> SlidePlan:
+    """
+    S5 — LLM generates a SlidePlan from request + evidence + strategy.
+    No content yet — only slide purpose and evidence mapping.
+    Strategy is optional for backward compatibility.
+    """
+    max_retries  = CONFIG["agent"]["max_plan_retries"]
+    all_chunks   = evidence.sections + evidence.concepts + evidence.tables + evidence.figures
+    evidence_text = _build_evidence_text(evidence)
+    valid_ids    = {c.chunk_id[:8] for c in all_chunks}
+
+    # Use strategy if provided, else use safe defaults
+    core_message        = strategy.core_message if strategy else f"Understanding {request.topic}"
+    audience_adaptation = strategy.audience_adaptation if strategy else ""
+    recommended_sections = (
+        ", ".join(strategy.recommended_sections) if strategy
+        else "Introduction, Core Concepts, Key Findings, Conclusion"
+    )
+
+    prompt = _PROMPT.format(
+        slide_count=request.slide_count,
+        topic=request.topic,
+        audience=request.audience,
+        objective=request.objective,
+        core_message=core_message,
+        audience_adaptation=audience_adaptation,
+        recommended_sections=recommended_sections,
+        evidence_text=evidence_text,
+    )
 
     for attempt in range(1, max_retries + 1):
-        # Replaced print behavior with log call
         log("planner", f"Attempt {attempt}/{max_retries}...")
-        
-        # Replaced _call_llm with call_llm
-        raw = call_llm(system_prompt, user_prompt)
-        
-        # Replaced _parse_json with parse_json
+        raw    = call_llm(_SYSTEM, prompt)
         parsed = parse_json(raw)
 
         if parsed is None:
-            # Replaced print behavior with log call
             log("planner", f"Invalid JSON on attempt {attempt}, retrying...")
             continue
 
         slides_data = parsed.get("slides", [])
 
-        # Validation gate — S5c
         if len(slides_data) == 0:
             log("planner", "No slides in response, retrying...")
             continue
 
-        # Tolerance of ±1 slide
         if abs(len(slides_data) - request.slide_count) > 1:
             log("planner", f"Got {len(slides_data)} slides, expected {request.slide_count}, retrying...")
             continue
 
-        # Build typed SlidePlan
+        # Build typed SlidePlan — filter hallucinated chunk IDs
         slides = []
-        valid_ids = {c.chunk_id[:8] for c in all_chunks}
         for s in slides_data:
-            # Filter out any hallucinated chunk IDs
             clean_ids = [eid for eid in s.get("evidence_ids", []) if eid in valid_ids]
             slides.append(SlideIntent(
                 slide_id=s["slide_id"],
@@ -90,20 +119,17 @@ Rules:
             ))
 
         plan = SlidePlan(slides=slides, total=len(slides))
-        
         log("planner", f"Valid plan: {plan.total} slides")
         return plan
 
-    # Max retries exceeded — return best partial plan
-    # Replaced print behavior with log call
-    log("planner", "Max retries exceeded, returning partial plan")
+    log("planner", "Max retries exceeded, returning empty plan")
     return SlidePlan(slides=[], total=0)
 
 
 if __name__ == "__main__":
-    sys.path.insert(0, "src")
-    from query_compiler import compile_query
-    from retrieval import retrieve
+    from src.query_compiler import compile_query
+    from src.retrieval import retrieve
+    from src.strategy import generate_strategy
 
     raw_query = (
         sys.argv[1] if len(sys.argv) > 1
@@ -111,18 +137,14 @@ if __name__ == "__main__":
     )
     doc_id = sys.argv[2] if len(sys.argv) > 2 else "Attention_is_all_you_Need"
 
-    log("planner", f"Query : {raw_query}")
     request  = compile_query(raw_query)
     evidence = retrieve(request.topic, top_k=15, doc_id=doc_id)
-
-    all_chunks = evidence.sections + evidence.concepts + evidence.tables + evidence.figures
-    log("planner", f"Evidence: {len(all_chunks)} chunks retrieved")
-
-    plan = generate_slide_plan(request, evidence)
+    strategy = generate_strategy(request, evidence)
+    plan     = generate_slide_plan(request, evidence, strategy=strategy)
 
     print(f"\n{'='*50}")
     print(f"SLIDE PLAN — {plan.total} slides")
     print(f"{'='*50}")
     for slide in plan.slides:
         print(f"\nSlide {slide.slide_id}: {slide.purpose}")
-        print(f"  Evidence: {slide.evidence_ids}")
+        print(f"  Evidence IDs : {slide.evidence_ids}")
