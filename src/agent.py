@@ -114,6 +114,7 @@ def node_generate_content(state: AgentState) -> AgentState:
         state["plan"],
         state["evidence"],
         audience=state["request"].audience,
+        strategy=state.get("strategy"),   # ← pass strategy
     )
     return {**state, "slides": slides}
 
@@ -270,3 +271,9 @@ def run_agent(raw_query: str, doc_id: str) -> str:
         print(f"[agent] CRITICAL EXCEPTION: {e}")
         traceback.print_exc()
         return ""
+
+if __name__ == "__main__":
+    import sys
+    raw_query = sys.argv[1] if len(sys.argv) > 1 else "make a 10 slide presentation"
+    doc_id    = sys.argv[2] if len(sys.argv) > 2 else "Attention_is_all_you_Need"
+    run_agent(raw_query, doc_id)
