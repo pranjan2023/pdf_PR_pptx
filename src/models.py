@@ -3,11 +3,18 @@ from typing import TypedDict, Any
 
 
 
+class FigureImage(BaseModel):
+    path: str | None = None    # None until Phase 3
+    caption: str
+    page: int
+    section: str
+
 class DocSection(BaseModel):
     heading: str
     text: str
     tables: list[str]
     figures: list[str]
+    figure_images: list[FigureImage] = []   # Phase 3
     page_range: tuple[int, int]
 
 class DocTree(BaseModel):
