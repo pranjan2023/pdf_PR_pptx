@@ -7,8 +7,7 @@
 [![LangGraph](https://img.shields.io/badge/Agent-LangGraph-orange?style=flat-square)](https://langchain-ai.github.io/langgraph/)
 [![Local](https://img.shields.io/badge/Runs-100%25%20Local-green?style=flat-square)]()
 
-📖 **[View the full styled README →](https://github.com/pranjan2023/pdf_PR_pptx/README.html)**
-
+ **[View the full styled README →](https://pranjan2023.github.io/pdf_PR_pptx/)**
 ---
 
 ## Quick Start
