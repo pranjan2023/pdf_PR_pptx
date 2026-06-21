@@ -1,0 +1,910 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>pdf-agent — Local Agentic PDF → PPTX</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #0B0C10;
+    --surface:   #13141A;
+    --surface2:  #1C1D26;
+    --border:    #252630;
+    --accent:    #7C6AF7;
+    --accent2:   #A78BFA;
+    --green:     #3DDBA8;
+    --text:      #E4E6F0;
+    --muted:     #6B7280;
+    --label:     #9CA3AF;
+    --inline-bg: #1A1B24;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    font-size: 15px;
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── NAV ── */
+  nav {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: rgba(11,12,16,0.85);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 48px;
+    height: 52px;
+  }
+  .nav-logo {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--accent2);
+    letter-spacing: 0.04em;
+  }
+  .nav-links {
+    display: flex;
+    gap: 32px;
+    list-style: none;
+  }
+  .nav-links a {
+    font-size: 13px;
+    color: var(--muted);
+    text-decoration: none;
+    letter-spacing: 0.03em;
+    transition: color 0.15s;
+  }
+  .nav-links a:hover { color: var(--text); }
+
+  /* ── HERO ── */
+  .hero {
+    padding: 96px 48px 72px;
+    max-width: 900px;
+    margin: 0 auto;
+    border-bottom: 1px solid var(--border);
+  }
+  .eyebrow {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 20px;
+  }
+  h1 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: clamp(36px, 5vw, 56px);
+    font-weight: 700;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    color: #fff;
+    margin-bottom: 20px;
+  }
+  h1 .arrow {
+    color: var(--accent2);
+  }
+  .hero-sub {
+    font-size: 17px;
+    color: var(--label);
+    max-width: 600px;
+    line-height: 1.65;
+    margin-bottom: 36px;
+  }
+  .badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 4px 10px;
+  }
+  .badge .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--green);
+  }
+
+  /* ── CONTENT ── */
+  .content {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 0 48px;
+  }
+
+  /* ── SECTIONS ── */
+  section {
+    padding: 64px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  section:last-child { border-bottom: none; }
+
+  h2 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 22px;
+    font-weight: 600;
+    color: #fff;
+    letter-spacing: -0.01em;
+    margin-bottom: 28px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  h2 .section-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--accent);
+    background: rgba(124,106,247,0.1);
+    border: 1px solid rgba(124,106,247,0.25);
+    border-radius: 4px;
+    padding: 2px 8px;
+    letter-spacing: 0.08em;
+  }
+
+  h3 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text);
+    margin: 28px 0 10px;
+  }
+
+  p { color: var(--label); margin-bottom: 14px; }
+  p:last-child { margin-bottom: 0; }
+
+  /* ── DEMO TERMINAL ── */
+  .terminal {
+    background: #0D0E14;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    margin: 24px 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+  }
+  .terminal-bar {
+    background: var(--surface);
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .t-dot { width: 10px; height: 10px; border-radius: 50%; }
+  .t-red   { background: #FF5F57; }
+  .t-yellow{ background: #FFBD2E; }
+  .t-green { background: #28C840; }
+  .terminal-label {
+    font-size: 11px;
+    color: var(--muted);
+    margin-left: 6px;
+    letter-spacing: 0.04em;
+  }
+  .terminal-body {
+    padding: 20px 24px;
+    line-height: 1.9;
+  }
+  .t-prompt { color: var(--accent2); }
+  .t-cmd    { color: #E4E6F0; }
+  .t-comment{ color: var(--muted); }
+  .t-out    { color: var(--green); }
+
+  /* ── INLINE CODE ── */
+  code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12.5px;
+    background: var(--inline-bg);
+    color: var(--accent2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 6px;
+  }
+
+  /* ── PIPELINE FLOW ── */
+  .pipeline {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0;
+    margin: 24px 0;
+  }
+  .pipeline-phase {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px 24px;
+    margin-bottom: 12px;
+  }
+  .phase-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 12px;
+  }
+  .phase-label.online { color: var(--green); }
+  .flow-steps {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+  }
+  .flow-step {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 5px 10px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    color: var(--text);
+    white-space: nowrap;
+  }
+  .flow-step.llm {
+    border-color: rgba(124,106,247,0.4);
+    color: var(--accent2);
+  }
+  .flow-step.det {
+    border-color: rgba(61,219,168,0.3);
+    color: var(--green);
+  }
+  .flow-arrow {
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  /* ── ARCH IMAGE ── */
+  .arch-wrap {
+    background: #fff;
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    margin: 24px 0;
+  }
+  .arch-wrap img {
+    width: 100%;
+    display: block;
+  }
+  .arch-caption {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+    text-align: center;
+    padding: 12px;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+  }
+
+  /* ── STACK TABLE ── */
+  .stack-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 10px;
+    margin-top: 4px;
+  }
+  .stack-item {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    padding: 14px 16px;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .stack-icon {
+    font-size: 18px;
+    line-height: 1;
+    margin-top: 1px;
+  }
+  .stack-name {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 2px;
+  }
+  .stack-role {
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  /* ── STRUCTURE ── */
+  .file-tree {
+    background: #0D0E14;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 24px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12.5px;
+    line-height: 2;
+    overflow-x: auto;
+  }
+  .ft-dir   { color: var(--accent2); }
+  .ft-file  { color: var(--label); }
+  .ft-note  { color: var(--muted); font-size: 11.5px; }
+  .ft-key   { color: var(--green); }
+
+  /* ── CONFIG ── */
+  .config-block {
+    background: #0D0E14;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 24px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12.5px;
+    line-height: 1.9;
+    overflow-x: auto;
+  }
+  .cy-key   { color: var(--accent2); }
+  .cy-val   { color: var(--green); }
+  .cy-sec   { color: var(--label); font-weight: 500; }
+  .cy-comment{ color: var(--muted); }
+
+  /* ── STYLE TABLE ── */
+  .style-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 10px;
+    margin-top: 4px;
+  }
+  .style-card {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .style-swatch {
+    height: 6px;
+  }
+  .style-body {
+    background: var(--surface);
+    padding: 12px 14px;
+  }
+  .style-kw {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--accent2);
+    margin-bottom: 4px;
+  }
+  .style-desc {
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  /* ── ROADMAP ── */
+  .roadmap {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+  .rm-phase {
+    display: flex;
+    gap: 20px;
+    padding: 16px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .rm-phase:last-child { border-bottom: none; }
+  .rm-tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    color: var(--accent);
+    background: rgba(124,106,247,0.08);
+    border: 1px solid rgba(124,106,247,0.2);
+    border-radius: 4px;
+    padding: 3px 8px;
+    height: fit-content;
+    white-space: nowrap;
+    margin-top: 2px;
+  }
+  .rm-items { display: flex; flex-direction: column; gap: 6px; }
+  .rm-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13.5px;
+    color: var(--label);
+  }
+  .rm-check { color: var(--green); font-size: 13px; }
+  .rm-todo  { color: var(--border); font-size: 13px; }
+
+  /* ── DESIGN PRINCIPLES ── */
+  .principles {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 12px;
+  }
+  .principle {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+  }
+  .principle-title {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--accent2);
+    margin-bottom: 8px;
+  }
+  .principle-body {
+    font-size: 13px;
+    color: var(--muted);
+    line-height: 1.6;
+    margin: 0;
+  }
+
+  /* ── FOOTER ── */
+  footer {
+    text-align: center;
+    padding: 48px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.04em;
+    border-top: 1px solid var(--border);
+  }
+  footer a { color: var(--accent2); text-decoration: none; }
+
+  @media (max-width: 640px) {
+    nav, .hero, .content { padding-left: 20px; padding-right: 20px; }
+    .flow-steps { gap: 4px; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <span class="nav-logo">pdf-agent</span>
+  <ul class="nav-links">
+    <li><a href="#demo">Demo</a></li>
+    <li><a href="#architecture">Architecture</a></li>
+    <li><a href="#setup">Setup</a></li>
+    <li><a href="#usage">Usage</a></li>
+    <li><a href="#roadmap">Roadmap</a></li>
+  </ul>
+</nav>
+
+<!-- HERO -->
+<div class="hero">
+  <div class="eyebrow">open-source · fully local · no cloud APIs</div>
+  <h1>PDF + Query <span class="arrow">→</span><br>Styled PPTX</h1>
+  <p class="hero-sub">
+    An agentic RAG pipeline that reads any PDF, reasons about the right presentation structure, 
+    and generates a polished <code>.pptx</code> file — entirely on your machine.
+  </p>
+  <div class="badges">
+    <span class="badge"><span class="dot"></span>Local-first</span>
+    <span class="badge">Python 3.11</span>
+    <span class="badge">LangGraph</span>
+    <span class="badge">Ollama · qwen2.5:14b</span>
+    <span class="badge">Milvus Lite</span>
+  </div>
+</div>
+
+<div class="content">
+
+<!-- DEMO -->
+<section id="demo">
+  <h2><span class="section-num">01</span> Demo</h2>
+  <p>Two commands — one to ingest, one to generate.</p>
+
+  <div class="terminal">
+    <div class="terminal-bar">
+      <span class="t-dot t-red"></span>
+      <span class="t-dot t-yellow"></span>
+      <span class="t-dot t-green"></span>
+      <span class="terminal-label">bash</span>
+    </div>
+    <div class="terminal-body">
+      <div><span class="t-comment"># Step 1 — ingest a PDF (run once per document)</span></div>
+      <div><span class="t-prompt">$</span> <span class="t-cmd">python main.py offline path/to/paper.pdf</span></div>
+      <br>
+      <div><span class="t-comment"># Step 2 — generate a presentation</span></div>
+      <div><span class="t-prompt">$</span> <span class="t-cmd">python main.py online \</span></div>
+      <div>&nbsp;&nbsp;<span class="t-cmd">"make a 10 slide technical presentation on transformer architecture" \</span></div>
+      <div>&nbsp;&nbsp;<span class="t-cmd">Attention_is_all_you_Need</span></div>
+      <br>
+      <div><span class="t-out">✓ Presentation saved → ./outputs/presentation.pptx</span></div>
+    </div>
+  </div>
+
+  <p>Output is a styled <code>.pptx</code> with titles, bullets, speaker notes, and a takeaway bar per slide. Built during an internship at <a href="https://unicloud.in" style="color:var(--accent2);text-decoration:none;">Unicloud</a> as a production-grade document intelligence system.</p>
+</section>
+
+<!-- ARCHITECTURE -->
+<section id="architecture">
+  <h2><span class="section-num">02</span> Architecture</h2>
+  <p>Two separate paths keep ingestion and generation cleanly isolated.</p>
+
+  <div class="pipeline">
+    <div class="pipeline-phase">
+      <div class="phase-label">OFFLINE — once per PDF</div>
+      <div class="flow-steps">
+        <span class="flow-step">PDF File</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step">S1: ingest.py</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step">S3a: chunker.py</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step">S3b: embedder.py</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step">Milvus Lite</span>
+      </div>
+    </div>
+
+    <div class="pipeline-phase">
+      <div class="phase-label online">ONLINE — per query · LangGraph StateGraph</div>
+      <div class="flow-steps">
+        <span class="flow-step">Raw Query</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step llm">S0: QueryCompiler</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step">S3c: Retrieval</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step llm">S4: Strategy</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step det">S4c: grade (det.)</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step llm">S5: Planner</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step det">S5c: grade (det.)</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step llm">S6: ContentGen</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step det">S7: Compress</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step">S9: Style</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step">S11: Render</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step" style="color:var(--green)">.pptx</span>
+      </div>
+      <div style="margin-top:14px;font-size:12px;color:var(--muted);font-family:'JetBrains Mono',monospace;">
+        <span style="color:var(--accent2)">■</span> LLM stage &nbsp;&nbsp;
+        <span style="color:var(--green)">■</span> Deterministic stage
+      </div>
+    </div>
+  </div>
+
+  <p>The planner and strategy nodes each run inside a conditional retry loop — if the critic detects a schema violation, the agent re-retrieves missing evidence and replans. Critics are deterministic Python, so no extra LLM calls at validation time.</p>
+
+  <div class="arch-wrap">
+  <img src="./images/Architecture.png" alt="pdf-agent architecture diagram">
+  </div>
+
+  <h3>Typed artifact chain</h3>
+  <p>Every stage boundary is a validated Pydantic model — no raw strings passed between stages:</p>
+  <div class="config-block">
+    <span class="cy-comment">str (raw query)</span><br>
+    &nbsp;&nbsp;<span class="cy-key">→</span> <span class="cy-val">PresentationRequest</span><br>
+    &nbsp;&nbsp;<span class="cy-key">→</span> <span class="cy-val">EvidencePack</span><br>
+    &nbsp;&nbsp;<span class="cy-key">→</span> <span class="cy-val">Strategy</span><br>
+    &nbsp;&nbsp;<span class="cy-key">→</span> <span class="cy-val">SlidePlan</span><br>
+    &nbsp;&nbsp;<span class="cy-key">→</span> <span class="cy-val">list[SlideContent]</span><br>
+    &nbsp;&nbsp;<span class="cy-key">→</span> <span class="cy-val">StyleConfig</span><br>
+    &nbsp;&nbsp;<span class="cy-key">→</span> <span class="cy-val">.pptx</span>
+  </div>
+</section>
+
+<!-- STACK -->
+<section id="stack">
+  <h2><span class="section-num">03</span> Stack</h2>
+  <p>Everything runs locally. No OpenAI, no Anthropic, no external APIs.</p>
+  <div class="stack-grid">
+    <div class="stack-item">
+      <div class="stack-icon">📄</div>
+      <div>
+        <div class="stack-name">PyMuPDF (fitz)</div>
+        <div class="stack-role">PDF parsing → DocTree</div>
+      </div>
+    </div>
+    <div class="stack-item">
+      <div class="stack-icon">✂️</div>
+      <div>
+        <div class="stack-name">LangChain</div>
+        <div class="stack-role">RecursiveCharacterTextSplitter</div>
+      </div>
+    </div>
+    <div class="stack-item">
+      <div class="stack-icon">🧠</div>
+      <div>
+        <div class="stack-name">sentence-transformers</div>
+        <div class="stack-role">all-MiniLM-L6-v2 · 384-dim embeddings</div>
+      </div>
+    </div>
+    <div class="stack-item">
+      <div class="stack-icon">🗄️</div>
+      <div>
+        <div class="stack-name">Milvus Lite</div>
+        <div class="stack-role">Local vector store</div>
+      </div>
+    </div>
+    <div class="stack-item">
+      <div class="stack-icon">🦙</div>
+      <div>
+        <div class="stack-name">Ollama · qwen2.5:14b</div>
+        <div class="stack-role">Local LLM inference</div>
+      </div>
+    </div>
+    <div class="stack-item">
+      <div class="stack-icon">🕸️</div>
+      <div>
+        <div class="stack-name">LangGraph</div>
+        <div class="stack-role">StateGraph agent orchestration</div>
+      </div>
+    </div>
+    <div class="stack-item">
+      <div class="stack-icon">📊</div>
+      <div>
+        <div class="stack-name">python-pptx</div>
+        <div class="stack-role">PPTX generation + rendering</div>
+      </div>
+    </div>
+    <div class="stack-item">
+      <div class="stack-icon">⚙️</div>
+      <div>
+        <div class="stack-name">YAML + Pydantic</div>
+        <div class="stack-role">Config + typed artifact models</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- PROJECT STRUCTURE -->
+<section id="structure">
+  <h2><span class="section-num">04</span> Project Structure</h2>
+  <div class="file-tree">
+<span class="ft-dir">pdf-agent/</span><br>
+├── <span class="ft-key">main.py</span>               <span class="ft-note"># CLI entry point (offline + online modes)</span><br>
+├── <span class="ft-key">config.yaml</span>           <span class="ft-note"># model names, chunk params, retrieval settings</span><br>
+├── <span class="ft-file">requirements.txt</span><br>
+└── <span class="ft-dir">src/</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;├── <span class="ft-key">models.py</span>         <span class="ft-note"># all Pydantic artifact definitions</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;├── <span class="ft-key">utils.py</span>          <span class="ft-note"># shared LLM caller, JSON parser, logger</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;├── <span class="ft-file">ingest.py</span>         <span class="ft-note"># S1  — PDF → DocTree</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;├── <span class="ft-file">chunker.py</span>        <span class="ft-note"># S3a — DocTree → list[Chunk]</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;├── <span class="ft-file">embedder.py</span>       <span class="ft-note"># S3b — list[Chunk] → Milvus</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;├── <span class="ft-file">retrieval.py</span>      <span class="ft-note"># S3c — query → EvidencePack</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;├── <span class="ft-file">query_compiler.py</span> <span class="ft-note"># S0  — raw string → PresentationRequest</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;├── <span class="ft-file">strategy.py</span>       <span class="ft-note"># S4  — PresentationStrategy (LLM)</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;├── <span class="ft-file">planner.py</span>        <span class="ft-note"># S5  — SlidePlan (LLM)</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;├── <span class="ft-file">content.py</span>        <span class="ft-note"># S6  — SlideContent (LLM)</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;├── <span class="ft-file">compression.py</span>    <span class="ft-note"># S7  — trim bullets for slide format</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;├── <span class="ft-file">visual.py</span>         <span class="ft-note"># S8  — VisualSpec per slide</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;├── <span class="ft-file">style.py</span>          <span class="ft-note"># S9  — StyleConfig from description</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;├── <span class="ft-file">layout.py</span>         <span class="ft-note"># S10 — LayoutSpec (deterministic)</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;├── <span class="ft-file">renderer.py</span>       <span class="ft-note"># S11 — python-pptx → .pptx</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;└── <span class="ft-file">agent.py</span>          <span class="ft-note"># LangGraph StateGraph wiring</span>
+  </div>
+</section>
+
+<!-- SETUP -->
+<section id="setup">
+  <h2><span class="section-num">05</span> Setup</h2>
+  <p>Requires Python 3.11, Conda (recommended), and Ollama running locally.</p>
+
+  <h3>Install</h3>
+  <div class="terminal">
+    <div class="terminal-bar">
+      <span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span>
+      <span class="terminal-label">bash</span>
+    </div>
+    <div class="terminal-body">
+      <div><span class="t-comment"># Create environment</span></div>
+      <div><span class="t-prompt">$</span> <span class="t-cmd">conda create -n pdf-agent python=3.11 -y</span></div>
+      <div><span class="t-prompt">$</span> <span class="t-cmd">conda activate pdf-agent</span></div>
+      <br>
+      <div><span class="t-comment"># Install dependencies</span></div>
+      <div><span class="t-prompt">$</span> <span class="t-cmd">pip install -r requirements.txt</span></div>
+      <br>
+      <div><span class="t-comment"># Fix OMP conflict on macOS Apple Silicon</span></div>
+      <div><span class="t-prompt">$</span> <span class="t-cmd">conda env config vars set KMP_DUPLICATE_LIB_OK=TRUE -n pdf-agent</span></div>
+      <div><span class="t-prompt">$</span> <span class="t-cmd">conda deactivate && conda activate pdf-agent</span></div>
+      <br>
+      <div><span class="t-comment"># Pull the LLM</span></div>
+      <div><span class="t-prompt">$</span> <span class="t-cmd">ollama pull qwen2.5:14b</span></div>
+    </div>
+  </div>
+
+  <h3>Verify</h3>
+  <div class="terminal">
+    <div class="terminal-bar">
+      <span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span>
+      <span class="terminal-label">bash</span>
+    </div>
+    <div class="terminal-body">
+      <div><span class="t-comment"># Test Ollama connection</span></div>
+      <div><span class="t-prompt">$</span> <span class="t-cmd">python -c "import requests; r = requests.post('http://localhost:11434/api/chat', json={'model':'qwen2.5:14b','messages':[{'role':'user','content':'ping'}],'stream':False}); print(r.json()['message']['content'])"</span></div>
+      <br>
+      <div><span class="t-comment"># Test Milvus</span></div>
+      <div><span class="t-prompt">$</span> <span class="t-cmd">python -c "from pymilvus import MilvusClient; print('Milvus ok')"</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- USAGE -->
+<section id="usage">
+  <h2><span class="section-num">06</span> Usage</h2>
+
+  <h3>Ingest a PDF</h3>
+  <div class="terminal">
+    <div class="terminal-bar">
+      <span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span>
+      <span class="terminal-label">bash</span>
+    </div>
+    <div class="terminal-body">
+      <div><span class="t-prompt">$</span> <span class="t-cmd">python main.py offline /path/to/document.pdf</span></div>
+    </div>
+  </div>
+  <p>Parses, chunks, embeds, and stores the document in <code>./data/milvus.db</code>. Run once per document. The <code>doc_id</code> is the filename stem.</p>
+
+  <h3>Generate a presentation</h3>
+  <div class="terminal">
+    <div class="terminal-bar">
+      <span class="t-dot t-red"></span><span class="t-dot t-yellow"></span><span class="t-dot t-green"></span>
+      <span class="terminal-label">bash</span>
+    </div>
+    <div class="terminal-body">
+      <div><span class="t-comment"># Technical overview</span></div>
+      <div><span class="t-prompt">$</span> <span class="t-cmd">python main.py online "make a 10 slide technical presentation on the transformer architecture" Attention_is_all_you_Need</span></div>
+      <br>
+      <div><span class="t-comment"># Executive summary</span></div>
+      <div><span class="t-prompt">$</span> <span class="t-cmd">python main.py online "create a 5 slide executive summary of the attention mechanism" Attention_is_all_you_Need</span></div>
+      <br>
+      <div><span class="t-comment"># Beginner tutorial with dark theme</span></div>
+      <div><span class="t-prompt">$</span> <span class="t-cmd">python main.py online "build a beginner tutorial on self-attention dark theme" Attention_is_all_you_Need</span></div>
+    </div>
+  </div>
+
+  <h3>Style keywords</h3>
+  <div class="style-cards">
+    <div class="style-card">
+      <div class="style-swatch" style="background: linear-gradient(90deg,#1a1a2e,#4a90d9)"></div>
+      <div class="style-body">
+        <div class="style-kw">dark, minimal</div>
+        <div class="style-desc">Dark background · blue accent</div>
+      </div>
+    </div>
+    <div class="style-card">
+      <div class="style-swatch" style="background: linear-gradient(90deg,#fff,#1a3a6b)"></div>
+      <div class="style-body">
+        <div class="style-kw">corporate, formal</div>
+        <div class="style-desc">White · navy accent</div>
+      </div>
+    </div>
+    <div class="style-card">
+      <div class="style-swatch" style="background: linear-gradient(90deg,#f0f0f0,#e91e8c)"></div>
+      <div class="style-body">
+        <div class="style-kw">colorful, creative</div>
+        <div class="style-desc">Light grey · pink accent</div>
+      </div>
+    </div>
+    <div class="style-card">
+      <div class="style-swatch" style="background: linear-gradient(90deg,#fff,#1a6df0)"></div>
+      <div class="style-body">
+        <div class="style-kw">(default)</div>
+        <div class="style-desc">White · blue accent</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CONFIG -->
+<section id="config">
+  <h2><span class="section-num">07</span> Configuration</h2>
+  <p>All tuneable parameters live in <code>config.yaml</code>.</p>
+  <div class="config-block">
+<span class="cy-sec">llm:</span><br>
+&nbsp;&nbsp;<span class="cy-key">model:</span>    <span class="cy-val">qwen2.5:14b</span><br>
+&nbsp;&nbsp;<span class="cy-key">base_url:</span> <span class="cy-val">http://localhost:11434/api/chat</span><br>
+&nbsp;&nbsp;<span class="cy-key">timeout:</span>  <span class="cy-val">120</span><br>
+<br>
+<span class="cy-sec">embedding:</span><br>
+&nbsp;&nbsp;<span class="cy-key">model:</span>  <span class="cy-val">all-MiniLM-L6-v2</span><br>
+&nbsp;&nbsp;<span class="cy-key">device:</span> <span class="cy-val">mps</span>  <span class="cy-comment"># cpu if not on Apple Silicon</span><br>
+<br>
+<span class="cy-sec">retrieval:</span><br>
+&nbsp;&nbsp;<span class="cy-key">top_k:</span>        <span class="cy-val">15</span><br>
+&nbsp;&nbsp;<span class="cy-key">min_evidence:</span> <span class="cy-val">3</span><br>
+<br>
+<span class="cy-sec">chunking:</span><br>
+&nbsp;&nbsp;<span class="cy-key">chunk_size:</span> <span class="cy-val">512</span><br>
+&nbsp;&nbsp;<span class="cy-key">overlap:</span>    <span class="cy-val">64</span><br>
+<br>
+<span class="cy-sec">agent:</span><br>
+&nbsp;&nbsp;<span class="cy-key">max_plan_retries:</span>    <span class="cy-val">3</span><br>
+&nbsp;&nbsp;<span class="cy-key">max_content_retries:</span> <span class="cy-val">2</span>
+  </div>
+</section>
+
+<!-- ROADMAP -->
+<section id="roadmap">
+  <h2><span class="section-num">08</span> Roadmap</h2>
+  <div class="roadmap">
+    <div class="rm-phase">
+      <div class="rm-tag">Phase 1</div>
+      <div class="rm-items">
+        <div class="rm-item"><span class="rm-check">✓</span> MVP — offline ingestion + online generation + PPTX render</div>
+      </div>
+    </div>
+    <div class="rm-phase">
+      <div class="rm-tag">Phase 2</div>
+      <div class="rm-items">
+        <div class="rm-item"><span class="rm-check">✓</span> LangGraph agent loop with plan critic</div>
+      </div>
+    </div>
+    <div class="rm-phase">
+      <div class="rm-tag">Phase 3</div>
+      <div class="rm-items">
+        <div class="rm-item"><span class="rm-todo">○</span> Semantic DocTree (heading-level chunking, table/figure extraction)</div>
+        <div class="rm-item"><span class="rm-todo">○</span> BGE-M3 embeddings + hybrid search (dense + BM25)</div>
+        <div class="rm-item"><span class="rm-todo">○</span> S4 strategy stage + strategy critic</div>
+        <div class="rm-item"><span class="rm-todo">○</span> S7 compression agent</div>
+      </div>
+    </div>
+    <div class="rm-phase">
+      <div class="rm-tag">Phase 4</div>
+      <div class="rm-items">
+        <div class="rm-item"><span class="rm-todo">○</span> Gradio UI — PDF upload, query input, style selector, download</div>
+        <div class="rm-item"><span class="rm-todo">○</span> FastAPI endpoint</div>
+      </div>
+    </div>
+    <div class="rm-phase">
+      <div class="rm-tag">Phase 5</div>
+      <div class="rm-items">
+        <div class="rm-item"><span class="rm-todo">○</span> Evaluation harness + open-source release</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- DESIGN PRINCIPLES -->
+<section id="design">
+  <h2><span class="section-num">09</span> Design Principles</h2>
+  <div class="principles">
+    <div class="principle">
+      <div class="principle-title">Typed artifacts at every boundary</div>
+      <p class="principle-body">Every stage produces a Pydantic model. No raw strings between stages. Enables caching, partial regeneration, and model swapping.</p>
+    </div>
+    <div class="principle">
+      <div class="principle-title">Constraints propagate as data</div>
+      <p class="principle-body">Slide count, audience, and style are extracted at S0 and enforced mechanically downstream — not passed as vague prompt instructions.</p>
+    </div>
+    <div class="principle">
+      <div class="principle-title">Offline / online separation</div>
+      <p class="principle-body">Ingestion happens once per document. Query-time work starts at retrieval. These paths never mix.</p>
+    </div>
+    <div class="principle">
+      <div class="principle-title">Critics are cheap</div>
+      <p class="principle-body">The plan critic is deterministic Python. LLM critic calls happen only when schema validation fails, keeping latency low.</p>
+    </div>
+  </div>
+</section>
+
+</div><!-- /content -->
+
+<footer>
+  Built at <a href="https://unicloud.in">Unicloud</a> &nbsp;·&nbsp;
+  Powered by Milvus · LangGraph · Ollama
+</footer>
+
+</body>
+</html>
