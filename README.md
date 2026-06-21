@@ -27,7 +27,7 @@ Output: a styled `.pptx` in `./outputs/` with titles, bullets, speaker notes, an
 
 ## Architecture
 
-![Architecture](./images/architecure)
+![Architecture](./images/Architecture.png)
 
 The system follows a two-path design:
 
