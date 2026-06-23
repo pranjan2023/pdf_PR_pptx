@@ -24,3 +24,8 @@ outputs/
 
 # Jupyter
 .ipynb_checkpoints/
+
+
+# Data and temp
+temp_assets
+data/figures/
