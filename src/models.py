@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import TypedDict, Any
+from typing import TypedDict, Any , Literal
 
 
 # ── Document Intelligence Models ──────────────────────────────────────
@@ -44,6 +44,7 @@ class Chunk(BaseModel):
     page: int
     type: str
     image_path: str | None = None  # for figure/table image chunks
+    doc_id: str = "unknown"
 
 
 class EvidencePack(BaseModel):
@@ -67,6 +68,7 @@ class PresentationRequest(BaseModel):
 class PresentationStrategy(BaseModel):
     core_message: str
     audience_adaptation: str
+    presentation_pacing: str
     recommended_sections: list[str]
 
 
@@ -75,6 +77,7 @@ class PresentationStrategy(BaseModel):
 class SlideIntent(BaseModel):
     slide_id: int
     purpose: str
+    layout_type: Literal["Title", "Big-Message", "Two-Column", "Assertion-Data", "Standard-Bullets"]
     evidence_ids: list[str]
 
 
@@ -85,32 +88,42 @@ class SlidePlan(BaseModel):
 
 # ── Slide Content Models ──────────────────────────────────────────────
 
-class LayoutSpec(BaseModel):
-    text_left: float
-    text_top: float
-    text_width: float
-    text_height: float
-    has_visual: bool = False
-    visual_left: float | None = None
-    visual_top: float | None = None
-    visual_width: float | None = None
-    visual_height: float | None = None
+# Inside src/models.py
 
+class BoundingBox(BaseModel):
+    left: float
+    top: float
+    width: float
+    height: float
+
+class LayoutSpec(BaseModel):
+    has_visual: bool = False
+    title_box: BoundingBox | None = None
+    body_box: BoundingBox | None = None
+    left_box: BoundingBox | None = None
+    right_box: BoundingBox | None = None
+    big_message_box: BoundingBox | None = None
+    visual_box: BoundingBox | None = None
 
 class SlideContent(BaseModel):
     slide_id: int
     title: str
-    bullets: list[str]
-    takeaway: str
-    speaker_notes: str
-    visual_hint: str = "text-only"  # "text-only" | "image" | "diagram" | "chart" | "table"
-    image_path: str | None = None   # path to figure/table image for renderer
-    layout: LayoutSpec | None = None
+    layout_type: str = "Standard-Bullets"
+    bullets: list[str] = []
+    left_column: list[str] = []
+    right_column: list[str] = []
+    big_message: str = ""
+    takeaway: str = ""
+    speaker_notes: str = ""
+    visual_hint: str = "text-only"
+    original_intent: str = ""
+    layout: LayoutSpec | None = None  # <-- Added so we can attach the coordinates safely
 
 
 class StyleConfig(BaseModel):
     template_name: str
     bg_color: str
+    text_color: str
     title_font: str
     body_font: str
     accent_color: str

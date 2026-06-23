@@ -5,10 +5,10 @@ llm:
   stream: false
 
 embedding:
-  model: all-MiniLM-L6-v2
-  dim: 384
+  model: "BAAI/bge-m3"
+  dim: 1024
   device: mps
-  batch_size: 32
+  batch_size: 16
 
 milvus:
   db_path: ./data/milvus.db

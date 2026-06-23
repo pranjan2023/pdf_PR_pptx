@@ -1,37 +1,50 @@
-from src.models import SlideContent
-from src.utils import call_llm, parse_json, log
+import os
+import matplotlib.pyplot as plt
+from src.models import SlideContent, StyleConfig
+from src.utils import log
 
-def plan_visuals(slides: list[SlideContent]) -> list[SlideContent]:
+def process_visuals(slides: list[SlideContent], style: StyleConfig, output_dir: str = "temp_assets") -> list[SlideContent]:
     """
-    S8: Analyzes slide content and assigns a layout hint (text, diagram, table, chart).
+    S11: Asset Engine. Generates transparent charts that match the theme's color palette.
     """
-    log("visual", "S8 — assigning visual hints to slides")
+    log("visual", f"S11 — Processing visual assets for {len(slides)} slides")
     
-    system_prompt = (
-        "You are an expert presentation designer. Determine the best visual format "
-        "for the provided slide content. "
-        "Choose EXACTLY ONE of these tags: ['text-only', 'diagram', 'table', 'chart'].\n"
-        "Return ONLY valid JSON matching this schema: {'hint': 'str'}"
-    )
-    
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
     for slide in slides:
-        user_prompt = (
-            f"Title: {slide.title}\n"
-            f"Bullets: {slide.bullets}\n"
-            f"Takeaway: {slide.takeaway}"
-        )
+        hint = getattr(slide, "visual_hint", "text-only")
         
-        response_text = call_llm(system_prompt, user_prompt)
-        hint_dict = parse_json(response_text)
-        
-        # Validate and assign the hint, fallback to text-only if confused
-        valid_hints = ['text-only', 'diagram', 'table', 'chart']
-        if hint_dict and "hint" in hint_dict and hint_dict["hint"] in valid_hints:
-            slide.visual_hint = hint_dict["hint"]
-        else:
-            slide.visual_hint = "text-only"
+        if hint == "chart":
+            chart_path = os.path.join(output_dir, f"chart_slide_{slide.slide_id}.png")
             
-        # 👇 NEW: Log the decision so we can see it in the terminal!
-        log("visual", f"Slide {slide.slide_id} tagged as: '{slide.visual_hint}'")
+            # --- Draw the Chart ---
+            fig, ax = plt.subplots(figsize=(5, 4))
+            
+            # Set transparency for seamless integration
+            fig.patch.set_alpha(0.0)
+            ax.patch.set_alpha(0.0)
+            
+            # Mock data
+            categories = ['Baseline', 'Standard', 'RAG']
+            values = [10, 25, 68] 
+            
+            # Use the theme's accent color for the primary bar, neutral for others
+            colors = ['#888888', '#888888', style.accent_color]
+            ax.bar(categories, values, color=colors)
+            
+            # Style text based on theme text_color
+            text_color_rgb = style.text_color
+            ax.tick_params(colors=text_color_rgb, labelsize=10)
+            ax.set_title("Performance Metrics", color=text_color_rgb, fontsize=12, pad=10)
+            
+            # Remove borders for a modern, clean look
+            for spine in ax.spines.values():
+                spine.set_visible(False)
+                
+            plt.tight_layout()
+            # Save with transparent background
+            plt.savefig(chart_path, dpi=150, transparent=True, edgecolor='none')
+            plt.close()
             
     return slides

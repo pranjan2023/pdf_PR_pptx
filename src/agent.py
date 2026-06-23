@@ -4,9 +4,8 @@ from src.query_compiler import compile_query
 from src.retrieval import retrieve
 from src.planner import generate_slide_plan
 from src.content import generate_content
-from src.visual import plan_visuals      
+from src.visual import process_visuals      # <-- UPDATED
 from src.layout import plan_layout
-from src.compression import compress_content
 from src.style import resolve_style
 from src.renderer import render_pptx
 from src.utils import log, CONFIG
@@ -62,7 +61,7 @@ def node_plan(state: AgentState) -> AgentState:
     plan = generate_slide_plan(
         state["request"],
         state["evidence"],
-        strategy=state.get("strategy"),   # ← pass strategy
+        strategy=state.get("strategy"),   
     )
     return {**state, "plan": plan, "plan_attempts": attempts}
 
@@ -92,7 +91,6 @@ def node_grade_plan(state: AgentState) -> AgentState:
         log("agent", "Grade: retry — duplicate slide purposes")
         return {**state, "plan_grade": "retry", "plan_reason": "duplicate purposes"}
 
-    # ← ADD THIS BLOCK HERE
     evidence_sets = []
     for s in plan.slides[1:-1]:   # skip title and conclusion
         if s.evidence_ids:
@@ -107,42 +105,45 @@ def node_grade_plan(state: AgentState) -> AgentState:
     return {**state, "plan_grade": "good", "plan_reason": ""}
 
 
-
 def node_generate_content(state: AgentState) -> AgentState:
     log("agent", "S6 — generating slide content")
     slides = generate_content(
         state["plan"],
         state["evidence"],
         audience=state["request"].audience,
-        strategy=state.get("strategy"),   # ← pass strategy
+        strategy=state.get("strategy"),   
     )
     return {**state, "slides": slides}
 
-def node_visual_plan(state: AgentState) -> AgentState:
-    slides_with_visuals = plan_visuals(state["slides"])
-    return {**state, "slides": slides_with_visuals}
 
 def node_layout_plan(state: AgentState) -> AgentState:
     log("agent", "S10 — planning layout coordinates")
     slides_with_layout = plan_layout(state["slides"])
     return {**state, "slides": slides_with_layout}
 
+
+def node_process_visuals(state: AgentState) -> AgentState:
+    log("agent", "S11 — generating visual assets")
+    slides_with_visuals = process_visuals(state["slides"], state["style"])
+    return {**state, "slides": slides_with_visuals}
+
+
 def node_resolve_style(state: AgentState) -> AgentState:
     log("agent", "S9 — resolving style")
     style = resolve_style(state["request"].style_desc)
     return {**state, "style": style}
 
-def node_compress(state: AgentState) -> AgentState:
-    log("agent", "S7 — compressing content")
-    compressed_slides = compress_content(state["slides"])
-    return {**state, "slides": compressed_slides}
 
 def node_render(state: AgentState) -> AgentState:
-    log("agent", "S11 — rendering PPTX")
+    log("agent", "S12 — rendering PPTX")
+    
+    # Safely get output path from CONFIG, fallback to default
+    out_path = CONFIG.get("output", {}).get("path", "final_output.pptx")
+    
     output_path = render_pptx(
         state["slides"],
         state["style"],
-        output_path=CONFIG["output"]["path"],
+        output_path=out_path,
     )
     return {**state, "output_path": output_path}
 
@@ -150,7 +151,6 @@ def node_render(state: AgentState) -> AgentState:
 # ── Conditional edges ─────────────────────────────────────────────────
 
 def route_after_strategy(state: AgentState) -> str:
-    # Use config default, fallback to 2
     max_attempts = CONFIG.get("agent", {}).get("max_strategy_retries", 2)
 
     if state["strategy_grade"] == "good":
@@ -165,7 +165,6 @@ def route_after_strategy(state: AgentState) -> str:
 
 
 def route_after_plan(state: AgentState) -> str:
-    # Use config default, fallback to 3
     max_attempts = CONFIG.get("agent", {}).get("max_plan_retries", 3)
 
     if state["plan_grade"] == "good":
@@ -186,49 +185,41 @@ def build_graph() -> StateGraph:
 
     graph.add_node("compile_query",      node_compile_query)
     graph.add_node("retrieve",           node_retrieve)
-    graph.add_node("strategize",         node_strategize)       # S4
-    graph.add_node("grade_strategy",     node_grade_strategy)   # S4c
-    graph.add_node("plan",               node_plan)             # S5
-    graph.add_node("grade_plan",         node_grade_plan)       # S5c
-    graph.add_node("generate_content",   node_generate_content) # S6
-    graph.add_node("compress",           node_compress)         # S7
-    graph.add_node("visual_plan",        node_visual_plan)      # S8
-    graph.add_node("layout_plan",        node_layout_plan)      # S10
-    graph.add_node("resolve_style",      node_resolve_style)    # S9
-    graph.add_node("render",             node_render)           # S11
+    graph.add_node("strategize",         node_strategize)       
+    graph.add_node("grade_strategy",     node_grade_strategy)   
+    graph.add_node("plan",               node_plan)             
+    graph.add_node("grade_plan",         node_grade_plan)       
+    graph.add_node("generate_content",   node_generate_content) 
+    graph.add_node("layout_plan",        node_layout_plan)
+    graph.add_node("process_visuals",    node_process_visuals)
+    graph.add_node("resolve_style",      node_resolve_style)    
+    graph.add_node("render",             node_render)           
 
     graph.set_entry_point("compile_query")
 
-    graph.add_edge("compile_query","retrieve")
-    graph.add_edge("retrieve","strategize")
-    graph.add_edge("strategize","grade_strategy")
+    graph.add_edge("compile_query", "retrieve")
+    graph.add_edge("retrieve", "strategize")
+    graph.add_edge("strategize", "grade_strategy")
     
-    # Conditional route for Strategy
     graph.add_conditional_edges(
         "grade_strategy",
         route_after_strategy,
-        {
-            "plan": "plan",
-            "strategize": "strategize",
-        }
+        {"plan": "plan", "strategize": "strategize"}
     )
 
-    graph.add_edge("plan","grade_plan")
-    # Conditional route for Plan
+    graph.add_edge("plan", "grade_plan")
+    
     graph.add_conditional_edges(
         "grade_plan",
         route_after_plan,
-        {
-            "generate_content": "generate_content",
-            "plan": "plan",
-        }
+        {"generate_content": "generate_content", "plan": "plan"}
     )
 
-    graph.add_edge("generate_content", "compress")              
-    graph.add_edge("compress",         "visual_plan")
-    graph.add_edge("visual_plan",      "layout_plan")
-    graph.add_edge("layout_plan",      "resolve_style")
-    graph.add_edge("resolve_style",    "render")
+    # ── FIXED ORDER ───────────────────────────────────────────────────
+    graph.add_edge("generate_content", "layout_plan")
+    graph.add_edge("layout_plan",      "resolve_style")      # style first
+    graph.add_edge("resolve_style",    "process_visuals")   # then visuals
+    graph.add_edge("process_visuals",  "render")
     graph.add_edge("render",           END)
 
     return graph.compile()

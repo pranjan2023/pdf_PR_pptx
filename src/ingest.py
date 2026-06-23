@@ -14,7 +14,6 @@ _HEADING_NUMBER_RE = re.compile(
     re.IGNORECASE
 )
 
-
 def get_body_font_size(doc: pymupdf.Document) -> float:
     sizes = []
     for page in doc:
@@ -28,7 +27,6 @@ def get_body_font_size(doc: pymupdf.Document) -> float:
     if not sizes:
         return 11.0
     return Counter(sizes).most_common(1)[0][0]
-
 
 def is_heading(text: str, max_font: float, body_font: float, is_bold: bool = False) -> bool:
     text = text.strip()
@@ -55,7 +53,6 @@ def is_heading(text: str, max_font: float, body_font: float, is_bold: bool = Fal
 
     return False
 
-
 def _find_caption(blocks: list, img_bbox: tuple) -> str:
     """Find caption text in the block immediately below an image bbox."""
     img_bottom = img_bbox[3]
@@ -71,7 +68,6 @@ def _find_caption(blocks: list, img_bbox: tuple) -> str:
             if cap:
                 return cap
     return ""
-
 
 def extract_page_tables(page: pymupdf.Page, page_num: int, section: str = "") -> tuple[list[str], list]:
     """
@@ -102,7 +98,6 @@ def extract_page_tables(page: pymupdf.Page, page_num: int, section: str = "") ->
         pass
 
     return markdown_list, table_data_list
-
 
 def extract_page_figures(
     page: pymupdf.Page,
@@ -164,7 +159,6 @@ def extract_page_figures(
         ))
 
     return caption_list, figure_image_list
-
 
 def ingest_pdf(pdf_path: str, doc_id: str | None = None):
     """
@@ -337,6 +331,17 @@ def ingest_pdf(pdf_path: str, doc_id: str | None = None):
         word_count=word_count,
     )
 
+def describe_figure(image_path: str) -> str:
+    import requests, base64
+    with open(image_path, "rb") as f:
+        img_b64 = base64.b64encode(f.read()).decode()
+    r = requests.post("http://localhost:11434/api/generate", json={
+        "model": "llava",
+        "prompt": "Describe this diagram in detail for a technical audience. Focus on structure, components, and data flow.",
+        "images": [img_b64],
+        "stream": False,
+    })
+    return r.json().get("response", "")
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:

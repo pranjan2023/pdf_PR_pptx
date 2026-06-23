@@ -76,7 +76,7 @@ def chunk_doctree(
         # ── Figures → "figure" chunks (from FigureImage) ──────────────
         for fi in section.figure_images:
             # Build rich text: caption + image availability signal
-            caption_text = fi.caption.strip() if fi.caption else "No caption available"
+            caption_text = fi.caption.strip() if fi.caption else f"Visual diagram from section: {heading}"
             has_image    = fi.path is not None
 
             text = f"[{heading}]\n[Figure, page {fi.page}]\nCaption: {caption_text}"

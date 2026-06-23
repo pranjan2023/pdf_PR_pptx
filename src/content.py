@@ -1,11 +1,11 @@
 import sys
+import re
 from src.models import SlidePlan, EvidencePack, SlideContent, PresentationStrategy
 from src.utils import call_llm, parse_json, log, CONFIG
 
-
-_SYSTEM = """You are a presentation content writer.
+_SYSTEM = """You are an expert presentation copywriter.
 Generate structured slide content grounded in the provided evidence.
-Write for the specified audience.
+Adapt your JSON output schema to perfectly match the requested layout type.
 Respond ONLY in valid JSON. No markdown fences, no preamble."""
 
 _PROMPT = """Generate content for slide {slide_id} of {total_slides}.
@@ -13,6 +13,7 @@ _PROMPT = """Generate content for slide {slide_id} of {total_slides}.
 Overall presentation core message: {core_message}
 
 Slide purpose : {purpose}
+Layout Type   : {layout_type}
 Audience      : {audience}
 
 Previously covered (do not repeat these):
@@ -21,52 +22,77 @@ Previously covered (do not repeat these):
 Evidence for this slide:
 {slide_evidence}
 
-Return JSON in exactly this format:
-{{
-  "slide_id": {slide_id},
-  "title": "concise slide title (max 8 words)",
-  "bullets": [
-    "bullet point 1 (max 15 words)",
-    "bullet point 2 (max 15 words)",
-    "bullet point 3 (max 15 words)"
-  ],
-  "takeaway": "one sentence key message of this slide",
-  "speaker_notes": "2-3 sentences expanding on the slide for the presenter",
-  "visual_hint": "text-only"
-}}
+Return JSON strictly matching this layout structure:
+{expected_json}
 
 Rules:
-- Maximum 4 bullets per slide
-- Each bullet maximum 15 words
-- Title slide (slide 1) gets 1 bullet maximum — just the subtitle
-- visual_hint must be one of: chart, diagram, table, text-only
-- Bullets must be grounded in the evidence — do not invent facts
-- Do not repeat content already covered in previous slides
-- Each bullet must be a complete thought, not a sentence fragment
-- Remove any citation artifacts like [1], [2], [31] from bullets"""
+- Layout MUST match the structure provided above.
+- Maximum 15 words per bullet/item. No paragraphs on the slide.
+- visual_hint must be one of: chart, diagram, table, text-only, image.
+- Ground content in evidence — do not invent facts.
+- If evidence contains [IMAGE AVAILABLE: ...], set visual_hint to "image" and mention it in speaker_notes.
+"""
 
+# Dynamic schemas depending on what the Planner requested
+_LAYOUT_SCHEMAS = {
+    "Title": """{
+  "title": "Main Presentation Title (max 8 words)",
+  "bullets": ["Subtitle or Presenter Name"],
+  "speaker_notes": "Opening remarks..."
+}""",
+    "Big-Message": """{
+  "title": "Contextual Title",
+  "big_message": "One massive, impactful statement or quote (max 15 words)",
+  "takeaway": "Key message",
+  "speaker_notes": "Detailed explanation..."
+}""",
+    "Two-Column": """{
+  "title": "Comparison/Contrast Title",
+  "left_column": ["Point A1", "Point A2"],
+  "right_column": ["Point B1", "Point B2"],
+  "takeaway": "Key message",
+  "speaker_notes": "Explanation of the comparison..."
+}""",
+    "Assertion-Data": """{
+  "title": "Core Assertion (e.g., 'Performance Increased by 50%')",
+  "big_message": "Primary Metric or Stat",
+  "bullets": ["Supporting detail 1", "Supporting detail 2"],
+  "takeaway": "Key message",
+  "speaker_notes": "Data analysis...",
+  "visual_hint": "chart"
+}""",
+    "Standard-Bullets": """{
+  "title": "Concise slide title",
+  "bullets": ["Point 1", "Point 2", "Point 3"],
+  "takeaway": "Key message",
+  "speaker_notes": "Detailed remarks..."
+}"""
+}
 
-def _build_previous_context(results: list[SlideContent]) -> str:
-    """Build a compact summary of slides already generated."""
+def _build_previous_context(results: list[SlideContent], window: int = 4) -> str:
     if not results:
         return "None — this is the first slide."
     lines = []
-    for s in results:
+    for s in results[-window:]:
         lines.append(f"  Slide {s.slide_id} '{s.title}': {s.takeaway}")
     return "\n".join(lines)
 
-
 def _get_slide_evidence(slide, all_chunks: dict) -> str:
-    """Gather evidence text for a slide from its evidence_ids."""
-    texts = [
-        all_chunks[eid].text
-        for eid in slide.evidence_ids
-        if eid in all_chunks
-    ]
-    return "\n\n".join(texts) if texts else (
-        "No specific evidence assigned — write a coherent transition or summary slide."
-    )
+    texts = []
+    for eid in slide.evidence_ids:
+        if eid not in all_chunks:
+            continue
+        chunk = all_chunks[eid]
+        if chunk.image_path:
+            texts.append(f"[IMAGE AVAILABLE: {chunk.image_path}]\n{chunk.text}")
+        else:
+            texts.append(chunk.text)
+    return "\n\n".join(texts) if texts else "No specific evidence assigned."
 
+def _clean_citations(text_list: list[str]) -> list[str]:
+    """Strips citation artifacts like [1], [ 2 ], [3, 4] from strings."""
+    clean = [re.sub(r'\[\s*\d+(?:\s*,\s*\d+)*\s*\]', '', b).strip() for b in text_list]
+    return [b for b in clean if b]
 
 def generate_content(
     plan: SlidePlan,
@@ -74,76 +100,66 @@ def generate_content(
     audience: str = "technical",
     strategy: PresentationStrategy | None = None,
 ) -> list[SlideContent]:
-    """
-    S6 — Generate structured content for each slide.
-    One LLM call per slide, with strategy coherence and dedup context.
-    """
+    
     max_retries = CONFIG["agent"]["max_content_retries"]
-
-    all_chunks = {
-        c.chunk_id[:8]: c
-        for c in (evidence.sections + evidence.concepts + evidence.tables + evidence.figures)
-    }
-
-    core_message = (
-        strategy.core_message if strategy
-        else "Present the topic clearly and concisely."
-    )
-
+    all_chunks = {c.chunk_id[:8]: c for c in (evidence.sections + evidence.concepts + evidence.tables + evidence.figures)}
+    core_message = strategy.core_message if strategy else "Present the topic clearly."
     results: list[SlideContent] = []
 
     for slide in plan.slides:
-        slide_evidence    = _get_slide_evidence(slide, all_chunks)
-        previous_context  = _build_previous_context(results)
+        slide_evidence = _get_slide_evidence(slide, all_chunks)
+        previous_context = _build_previous_context(results)
+        
+        # Fallback to standard if layout is unrecognized
+        expected_json = _LAYOUT_SCHEMAS.get(getattr(slide, "layout_type", "Standard-Bullets"), _LAYOUT_SCHEMAS["Standard-Bullets"])
 
         prompt = _PROMPT.format(
             slide_id=slide.slide_id,
             total_slides=plan.total,
             core_message=core_message,
             purpose=slide.purpose,
+            layout_type=getattr(slide, "layout_type", "Standard-Bullets"),
             audience=audience,
             previous_context=previous_context,
             slide_evidence=slide_evidence,
+            expected_json=expected_json
         )
 
         for attempt in range(1, max_retries + 1):
-            raw    = call_llm(_SYSTEM, prompt)
+            raw = call_llm(_SYSTEM, prompt)
             parsed = parse_json(raw)
 
-            if parsed and "title" in parsed and "bullets" in parsed:
-                # Strip citation artifacts from bullets
-                import re
-                clean_bullets = [
-                    re.sub(r'\[\d+\]', '', b).strip()
-                    for b in parsed["bullets"][:4]
-                ]
-                clean_bullets = [b for b in clean_bullets if b]  # remove empty
+            if parsed:
+                try:
+                    # Clean citations across all possible list fields
+                    if "bullets" in parsed: parsed["bullets"] = _clean_citations(parsed["bullets"])
+                    if "left_column" in parsed: parsed["left_column"] = _clean_citations(parsed["left_column"])
+                    if "right_column" in parsed: parsed["right_column"] = _clean_citations(parsed["right_column"])
+                    
+                    # Ensure slide_id and layout_type are injected properly
+                    parsed["slide_id"] = slide.slide_id
+                    parsed["layout_type"] = getattr(slide, "layout_type", "Standard-Bullets")
+                    parsed["original_intent"] = slide.purpose
 
-                results.append(SlideContent(
-                    slide_id=parsed.get("slide_id", slide.slide_id),
-                    title=parsed["title"],
-                    bullets=clean_bullets,
-                    takeaway=parsed.get("takeaway", ""),
-                    speaker_notes=parsed.get("speaker_notes", ""),
-                    visual_hint=parsed.get("visual_hint", "text-only"),
-                ))
-                log("content", f"Slide {slide.slide_id} ✓  '{parsed['title']}'")
-                break
-
+                    content_obj = SlideContent(**parsed)
+                    results.append(content_obj)
+                    log("content", f"Slide {slide.slide_id} [{content_obj.layout_type}] ✓ '{content_obj.title}'")
+                    break
+                except Exception as e:
+                    log("content", f"Slide {slide.slide_id} Pydantic failed: {e}. Retry {attempt}")
             else:
                 log("content", f"Slide {slide.slide_id} invalid JSON, retry {attempt}")
-                if attempt == max_retries:
-                    results.append(SlideContent(
-                        slide_id=slide.slide_id,
-                        title=f"Slide {slide.slide_id}",
-                        bullets=["Content generation failed — check evidence"],
-                        takeaway="",
-                        speaker_notes="",
-                        visual_hint="text-only",
-                    ))
+            
+            if attempt == max_retries:
+                results.append(SlideContent(
+                    slide_id=slide.slide_id,
+                    title=f"Slide {slide.slide_id} Failed",
+                    layout_type="Standard-Bullets",
+                    bullets=["Content generation failed"],
+                    original_intent=slide.purpose
+                ))
 
     return results
-
 
 if __name__ == "__main__":
     from src.query_compiler import compile_query
@@ -151,11 +167,8 @@ if __name__ == "__main__":
     from src.strategy import generate_strategy
     from src.planner import generate_slide_plan
 
-    raw_query = (
-        sys.argv[1] if len(sys.argv) > 1
-        else "make a 10 slide technical presentation on the transformer architecture"
-    )
-    doc_id = sys.argv[2] if len(sys.argv) > 2 else "Attention_is_all_you_Need"
+    raw_query = sys.argv[1] if len(sys.argv) > 1 else "make a 5 slide presentation comparing RAG to standard models"
+    doc_id = sys.argv[2] if len(sys.argv) > 2 else "Rag"
 
     request  = compile_query(raw_query)
     evidence = retrieve(request.topic, top_k=15, doc_id=doc_id)
@@ -166,10 +179,26 @@ if __name__ == "__main__":
     slides = generate_content(plan, evidence, audience=request.audience, strategy=strategy)
 
     print(f"\n{'='*50}")
-    print(f"SLIDE CONTENT — {len(slides)} slides")
+    print(f"DYNAMIC SLIDE CONTENT — {len(slides)} slides")
     print(f"{'='*50}")
+    
     for s in slides:
-        print(f"\nSlide {s.slide_id}: {s.title}")
-        for b in s.bullets:
-            print(f"  • {b}")
+        print(f"\nSlide {s.slide_id} [{s.layout_type}]: {s.title}")
+        
+        if s.layout_type == "Two-Column":
+            print("  [LEFT COLUMN]")
+            for b in s.left_column: print(f"    • {b}")
+            print("  [RIGHT COLUMN]")
+            for b in s.right_column: print(f"    • {b}")
+            
+        elif s.layout_type in ["Big-Message", "Assertion-Data"]:
+            print(f"  ★ BIG MESSAGE: {s.big_message}")
+            if s.bullets:
+                print("  [SUPPORTING DATA]")
+                for b in s.bullets: print(f"    • {b}")
+                
+        else: # Standard and Title
+            for b in s.bullets:
+                print(f"  • {b}")
+                
         print(f"  ↳ {s.takeaway}")

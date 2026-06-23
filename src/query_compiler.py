@@ -15,21 +15,19 @@ Return JSON in exactly this format:
   "topic": "the core subject matter only — no action words like make/create/build",
   "audience": "technical" | "executive" | "beginner",
   "slide_count": <integer, default 10>,
-  "style_desc": "dark minimal" | "corporate formal" | "colorful creative" | "clean minimal",
+  "style_desc": "<free text describing the visual style>",
   "objective": "inform" | "teach" | "pitch" | "summarize"
 }}
 
-Rules:
-- topic: extract only the subject. "make a presentation on transformers" → "transformers"
-- audience: infer from context. "for engineers" → technical, "for investors" → executive
-- slide_count: extract number if mentioned, else 10
-- style_desc: infer from keywords. "dark", "minimal" → "dark minimal". Default: "clean minimal"
-- objective: infer from explicit words only. 
-  "tutorial", "teach", "learn", "explain" → teach
-  "summary", "summarize", "overview" → summarize  
-  "pitch", "sell", "convince", "investor" → pitch
-  "presentation", "slides" with no other signal → inform (default)
-  When in doubt, use "inform"
+Extraction Rules:
+- topic: Extract only the subject (e.g., "make a deck on transformers" → "transformers").
+- objective: Infer the goal. ("tutorial/explain" → teach, "summary" → summarize, "pitch/investor" → pitch, otherwise inform).
+- slide_count: If explicitly stated, use that number. If not stated, infer based on objective (executive summary → 3-5, pitch deck → 10-12, deep tutorial → 15-20).
+- audience: If not stated, deduce from topic/objective (e.g., "code review" → technical, "sales" → executive, "intro to" → beginner).
+- style_desc: 
+  * If the user mentions a visual style / vibe / theme (e.g., "dark theme", "neon", "corporate", "minimal", "vintage"), output that **exact phrase**.
+  * If not mentioned, suggest a suitable style based on audience and topic (e.g., "dark minimal" for technical, "corporate formal" for executive, "colorful creative" for beginners).
+  * Do NOT restrict to a fixed list.
 """
 
 
@@ -61,9 +59,9 @@ def compile_query(raw: str) -> PresentationRequest:
                     audience = "technical"
                 if objective not in ("inform", "teach", "pitch", "summarize"):
                     objective = "inform"
-                if style_desc not in ("dark minimal", "corporate formal",
-                                      "colorful creative", "clean minimal"):
+                if not style_desc or not isinstance(style_desc, str):
                     style_desc = "clean minimal"
+
 
                 req = PresentationRequest(
                     topic=topic,
@@ -104,6 +102,7 @@ if __name__ == "__main__":
         "build a beginner tutorial on self-attention with dark theme",
         "pitch deck for investors on our new NLP product, 8 slides",
         "summarize the training section in 4 slides corporate style",
+        "Multiple ways to design memory systems for deep learning,colorful creative",
     ]
     for t in tests:
         print(f"\nInput: {t}")
